@@ -1,0 +1,6 @@
+# Git ignore
+__pycache__/
+*.pyc
+*.swp
+.DS_Store
+*.bak
